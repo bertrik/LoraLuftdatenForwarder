@@ -4,8 +4,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
-import java.util.Locale;
 
 import org.apache.log4j.PropertyConfigurator;
 import org.eclipse.paho.client.mqttv3.MqttException;
@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import nl.bertriksikken.feinstaub.FeinStaubUploader;
+import nl.bertriksikken.feinstaub.IFeinStaubRestApi;
 import nl.bertriksikken.loraforwarder.rudzl.dto.RudzlMessage;
 import nl.bertriksikken.loraforwarder.ttnulm.PayloadParseException;
 import nl.bertriksikken.loraforwarder.ttnulm.TtnCayenneMessage;
@@ -35,6 +37,7 @@ public final class LoraLuftdatenForwarder {
     private final MqttListener mqttListener;
     private final LuftdatenUploader luftdatenUploader;
     private final OpenSenseUploader openSenseUploader;
+    private final FeinStaubUploader feinStaubUploader;
     private final EPayloadEncoding encoding;
 
     public static void main(String[] args) throws IOException, MqttException {
@@ -54,6 +57,10 @@ public final class LoraLuftdatenForwarder {
         IOpenSenseRestApi openSenseClient = OpenSenseUploader.newRestClient(config.getOpenSenseUrl(),
                 config.getOpenSenseTimeout());
         openSenseUploader = new OpenSenseUploader(config.getOpenSenseConfigFile(), openSenseClient);
+
+        IFeinStaubRestApi feinStaubClient = FeinStaubUploader.newRestClient("http://h2801469.stratoserver.net",
+                Duration.ofSeconds(10));
+        feinStaubUploader = new FeinStaubUploader(feinStaubClient);
 
         encoding = EPayloadEncoding.fromId(config.getNodeEncoding());
 
@@ -82,6 +89,7 @@ public final class LoraLuftdatenForwarder {
             SensorData sensorData = decodeTtnMessage(instant, sensorId, uplink);
             luftdatenUploader.scheduleUpload(sensorId, sensorData);
             openSenseUploader.scheduleUpload(uplink.getHardwareSerial(), sensorData);
+            feinStaubUploader.scheduleUpload(uplink.getHardwareSerial(), sensorData);
         } catch (PayloadParseException e) {
             LOG.warn("Could not parse payload from: '{}", uplink);
         }
@@ -151,6 +159,7 @@ public final class LoraLuftdatenForwarder {
         // start sub-modules
         luftdatenUploader.start();
         openSenseUploader.start();
+        feinStaubUploader.start();
         mqttListener.start();
 
         LOG.info("Started LoraLuftdatenForwarder application");
@@ -165,6 +174,7 @@ public final class LoraLuftdatenForwarder {
         LOG.info("Stopping LoraLuftdatenForwarder application");
 
         mqttListener.stop();
+        feinStaubUploader.stop();
         openSenseUploader.stop();
         luftdatenUploader.stop();
 
